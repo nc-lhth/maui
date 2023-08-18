@@ -88,7 +88,13 @@ namespace Microsoft.Maui.Authentication
 #pragma warning disable CA1416 // Analyzer bug https://github.com/dotnet/roslyn-analyzers/issues/5938
 					was.Start();
 #pragma warning restore CA1416
-					return await tcsResponse.Task;
+					var result = await tcsResponse.Task;
+					if (scheme == "https")
+					{
+						was?.Cancel();
+					}
+					was = null;
+					return result;
 				}
 			}
 
@@ -97,11 +103,21 @@ namespace Microsoft.Maui.Authentication
 
 			if (OperatingSystem.IsIOSVersionAtLeast(11))
 			{
+#pragma warning disable CA1422
 				sf = new SFAuthenticationSession(WebUtils.GetNativeUrl(url), scheme, AuthSessionCallback);
+#pragma warning restore CA1422
 				using (sf)
 				{
+#pragma warning disable CA1422
 					sf.Start();
-					return await tcsResponse.Task;
+#pragma warning restore CA1422
+					var result = await tcsResponse.Task;
+					if (scheme == "https")
+					{
+						was?.Cancel();
+					}
+					was = null;
+					return result;
 				}
 			}
 
