@@ -11,6 +11,9 @@ namespace Microsoft.Maui.Controls
 	/// <include file="../../docs/Microsoft.Maui.Controls/Setter.xml" path="Type[@FullName='Microsoft.Maui.Controls.Setter']/Docs/*" />
 	[ContentProperty(nameof(Value))]
 	[ProvideCompiled("Microsoft.Maui.Controls.XamlC.SetterValueProvider")]
+	[RequireService(
+		[typeof(IValueConverterProvider),
+		 typeof(IXmlLineInfoProvider)])]
 	public sealed class Setter : IValueProvider
 	{
 		/// <include file="../../docs/Microsoft.Maui.Controls/Setter.xml" path="//Member[@MemberName='TargetName']/Docs/*" />
@@ -71,8 +74,6 @@ namespace Microsoft.Maui.Controls
 			if (Property == null)
 				return;
 
-			//FIXME: use Specificity everywhere
-			var fromStyle = specificity.Style > 0;
 			if (Value is BindingBase binding)
 				targetObject.SetBinding(Property, binding.Clone(), specificity);
 			else if (Value is DynamicResource dynamicResource)
@@ -96,7 +97,10 @@ namespace Microsoft.Maui.Controls
 
 			if (Property == null)
 				return;
-
+			if (Value is BindingBase binding)
+				targetObject.RemoveBinding(Property, specificity);
+			else if (Value is DynamicResource dynamicResource)
+				targetObject.RemoveDynamicResource(Property, specificity);
 			targetObject.ClearValue(Property, specificity);
 		}
 	}

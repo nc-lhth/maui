@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
@@ -27,7 +28,62 @@ namespace Microsoft.Maui.DeviceTests
 					handlers.AddHandler<ListView, ListViewRenderer>();
 					handlers.AddHandler<VerticalStackLayout, LayoutHandler>();
 					handlers.AddHandler<Label, LabelHandler>();
+					handlers.AddHandler<Entry, EntryHandler>();
 				});
+			});
+		}
+
+
+		[Fact
+#if ANDROID
+			(Skip = "https://github.com/dotnet/maui/issues/24701")
+#endif
+		]
+		public async Task ChangingTemplateTypeDoesNotCrash()
+		{
+			SetupBuilder();
+			ObservableCollection<string> data1 = new ObservableCollection<string>()
+			{
+				"cat",
+				"dog",
+			};
+			ObservableCollection<string> data2 = new ObservableCollection<string>()
+			{
+				"dog",
+				"cat",
+			};
+
+			var template1 = new DataTemplate(() =>
+			{
+				return new ViewCell()
+				{
+					View = new Label()
+				};
+			});
+
+			var template2 = new DataTemplate(() =>
+			{
+				return new ViewCell()
+				{
+					View = new Entry()
+				};
+			});
+
+			var listView = new ListView()
+			{
+				HasUnevenRows = true,
+				ItemTemplate = new FunctionalDataTemplateSelector((item, container) =>
+				{
+					return item.ToString() == "cat" ? template1 : template2;
+				}),
+				IsGroupingEnabled = true,
+				ItemsSource = new ObservableCollection<ObservableCollection<string>>() { data1 }
+			};
+
+			await CreateHandlerAndAddToWindow<LayoutHandler>(new VerticalStackLayout() { listView }, async (handler) =>
+			{
+				listView.ItemsSource = new ObservableCollection<ObservableCollection<string>>() { data2 };
+				await Task.Delay(5000);
 			});
 		}
 
@@ -271,6 +327,94 @@ namespace Microsoft.Maui.DeviceTests
 				await Task.Delay(100);
 				ValidatePlatformCells(listView);
 			});
+		}
+
+		[Fact("Cells Do Not Leak"
+#if !WINDOWS
+			, Skip = "Skip for now on other platforms, due to how cells are recycled this does not pass."
+#endif
+		)]
+		public async Task CellsDoNotLeak()
+		{
+			SetupBuilder();
+
+			var references = new List<WeakReference>();
+			var listView = new ListView
+			{
+				ItemTemplate = new DataTemplate(() =>
+				{
+					var cell = new TextCell();
+					references.Add(new(cell));
+					return cell;
+				})
+			};
+
+			await CreateHandlerAndAddToWindow<ListViewRenderer>(listView, async _ =>
+			{
+				listView.ItemsSource = new[] { 1, 2, 3 };
+				await Task.Delay(100);
+				ValidatePlatformCells(listView);
+				listView.ItemsSource = null;
+				await Task.Delay(100);
+				ValidatePlatformCells(listView);
+			});
+
+			await AssertionExtensions.WaitForGC(references.ToArray());
+		}
+
+		[Fact("Cells Repopulate After Null ItemsSource")]
+		public async Task CellsRepopulateAfterNullItemsSource()
+		{
+			SetupBuilder();
+
+			List<TextCell> cells = null;
+
+			var listView = new ListView
+			{
+				ItemTemplate = new DataTemplate(() =>
+				{
+					var cell = new TextCell();
+					cell.SetBinding(TextCell.TextProperty, new Binding("."));
+					cells?.Add(cell);
+					return cell;
+				})
+			};
+
+			await CreateHandlerAndAddToWindow<ListViewRenderer>(listView, async _ =>
+			{
+				listView.ItemsSource = new[] { 1, 2, 3 };
+				await Task.Delay(100);
+				ValidatePlatformCells(listView);
+				listView.ItemsSource = null;
+				await Task.Delay(100);
+				ValidatePlatformCells(listView);
+
+				// Now track the new cells
+				cells = new();
+				listView.ItemsSource = new[] { 4, 5, 6 };
+				await Task.Delay(100);
+				ValidatePlatformCells(listView);
+
+				Assert.Equal(3, cells.Count);
+				Assert.Equal("4", cells[0].Text);
+				Assert.Equal("5", cells[1].Text);
+				Assert.Equal("6", cells[2].Text);
+			});
+		}
+
+		class FunctionalDataTemplateSelector : DataTemplateSelector
+		{
+			public Func<object, BindableObject, DataTemplate> Selector { get; }
+
+			public FunctionalDataTemplateSelector(Func<object, BindableObject, DataTemplate> selectTemplate)
+			{
+				Selector = selectTemplate;
+			}
+
+			protected override DataTemplate OnSelectTemplate(object item, BindableObject container)
+			{
+				return Selector.Invoke(item, container);
+			}
 		}
 	}
 }

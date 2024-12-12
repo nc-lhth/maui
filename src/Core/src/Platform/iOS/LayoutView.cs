@@ -11,27 +11,40 @@ namespace Microsoft.Maui.Platform
 		{
 			InvalidateConstraintsCache();
 			base.SubviewAdded(uiview);
-			Superview?.SetNeedsLayout();
+			TryToInvalidateSuperView(false);
 		}
 
 		public override void WillRemoveSubview(UIView uiview)
 		{
 			InvalidateConstraintsCache();
 			base.WillRemoveSubview(uiview);
-			Superview?.SetNeedsLayout();
+			TryToInvalidateSuperView(false);
 		}
 
-		public override UIView HitTest(CGPoint point, UIEvent? uievent)
+		public override UIView? HitTest(CGPoint point, UIEvent? uievent)
 		{
 			var result = base.HitTest(point, uievent);
 
-			if (!_userInteractionEnabled && this.Equals(result))
+			if (result is null)
+			{
+				return null;
+			}
+
+			if (!_userInteractionEnabled && Equals(result))
 			{
 				// If user interaction is disabled (IOW, if the corresponding Layout is InputTransparent),
 				// then we exclude the LayoutView itself from hit testing. But it's children are valid
 				// hit testing targets.
 
-				return null!;
+				return null;
+			}
+
+			if (result is LayoutView layoutView && !layoutView.UserInteractionEnabledOverride)
+			{
+				// If the child is a layout then we need to check the UserInteractionEnabledOverride
+				// since layouts always have user interaction enabled.
+
+				return null;
 			}
 
 			return result;

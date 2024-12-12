@@ -3,7 +3,6 @@ using AndroidX.AppCompat.Widget;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui.Handlers;
 using Xunit;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Microsoft.Maui.DeviceTests
 {
@@ -56,6 +55,21 @@ namespace Microsoft.Maui.DeviceTests
 			await SetValueAsync<string, EntryHandler>(entry, "TEsT", SetPlatformText);
 
 			Assert.Equal(2, entry.CursorPosition);
+		}
+
+		[Fact]
+		[Category(TestCategory.Entry)]
+		public async Task UpdateTextWithTextLongerThanMaxLength()
+		{
+			string longText = "A text longer than 4 characters";
+			var entry = new Entry
+			{
+				MaxLength = 4,
+			};
+
+			await SetValueAsync<string, EntryHandler>(entry, longText, SetPlatformText);
+
+			Assert.Equal(longText[..4], entry.Text);
 		}
 	}
 }

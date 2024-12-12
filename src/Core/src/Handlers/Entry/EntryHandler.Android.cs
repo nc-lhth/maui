@@ -2,6 +2,7 @@
 using Android.Graphics.Drawables;
 using Android.Text;
 using Android.Views;
+using Android.Views.InputMethods;
 using AndroidX.AppCompat.Widget;
 using AndroidX.Core.Content;
 using static Android.Views.View;
@@ -51,7 +52,6 @@ namespace Microsoft.Maui.Handlers
 		protected override void DisconnectHandler(AppCompatEditText platformView)
 		{
 			_clearButtonDrawable = null;
-
 			platformView.TextChanged -= OnTextChanged;
 			platformView.FocusChange -= OnFocusedChange;
 			platformView.Touch -= OnTouch;
@@ -183,17 +183,40 @@ namespace Microsoft.Maui.Handlers
 		{
 			var returnType = VirtualView?.ReturnType;
 
+			// Inside of the android implementations that map events to listeners, the default return value for "Handled" is always true
+			// This means, just by subscribing to EditorAction/KeyPressed/etc.. you change the behavior of the control
+			// So, we are setting handled to false here in order to maintain default behavior
+			bool handled = false;
 			if (returnType != null)
 			{
-				var currentInputImeFlag = returnType.Value.ToPlatform();
+				var actionId = e.ActionId;
+				var evt = e.Event;
+				ImeAction currentInputImeFlag = PlatformView.ImeOptions;
 
-				if (e.IsCompletedAction(currentInputImeFlag))
+				// On API 34 it looks like they fixed the issue where the actionId is ImeAction.ImeNull when using a keyboard
+				// so I'm just setting the actionId here to the current ImeOptions so the logic can all be simplified
+				if (actionId == ImeAction.ImeNull && evt?.KeyCode == Keycode.Enter)
+				{
+					actionId = currentInputImeFlag;
+				}
+
+				// keyboard path
+				if (evt?.KeyCode == Keycode.Enter && evt?.Action == KeyEventActions.Down)
+				{
+					handled = true;
+				}
+				else if (evt?.KeyCode == Keycode.Enter && evt?.Action == KeyEventActions.Up)
+				{
+					VirtualView?.Completed();
+				}
+				// InputPaneView Path
+				else if (evt?.KeyCode is null && (actionId == ImeAction.Done || actionId == currentInputImeFlag))
 				{
 					VirtualView?.Completed();
 				}
 			}
 
-			e.Handled = false;
+			e.Handled = handled;
 		}
 
 		private void OnSelectionChanged(object? sender, EventArgs e)

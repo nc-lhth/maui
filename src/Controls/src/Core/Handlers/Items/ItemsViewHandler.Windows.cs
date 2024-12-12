@@ -32,10 +32,6 @@ namespace Microsoft.Maui.Controls.Handlers.Items
 		bool _emptyViewDisplayed;
 		double _previousHorizontalOffset;
 		double _previousVerticalOffset;
-		double _previousItemSpacing;
-		double _previousHorizontalItemSpacing;
-		double _previousVerticalItemSpacing;
-
 		protected ListViewBase ListViewBase => PlatformView;
 		protected TItemsView ItemsView => VirtualView;
 		protected TItemsView Element => VirtualView;
@@ -61,6 +57,7 @@ namespace Microsoft.Maui.Controls.Handlers.Items
 		protected override void DisconnectHandler(ListViewBase platformView)
 		{
 			VirtualView.ScrollToRequested -= ScrollToRequested;
+			CleanUpCollectionViewSource(platformView);
 			base.DisconnectHandler(platformView);
 		}
 
@@ -159,11 +156,16 @@ namespace Microsoft.Maui.Controls.Handlers.Items
 
 		protected virtual void CleanUpCollectionViewSource()
 		{
-			if (CollectionViewSource != null)
+			CleanUpCollectionViewSource(ListViewBase);
+		}
+
+		private void CleanUpCollectionViewSource(ListViewBase platformView)
+		{
+			if (CollectionViewSource is not null)
 			{
-				if (CollectionViewSource.Source is ObservableItemTemplateCollection observableItemTemplateCollection)
+				if (CollectionViewSource.Source is IDisposable disposableItemTemplateCollection)
 				{
-					observableItemTemplateCollection.CleanUp();
+					disposableItemTemplateCollection.Dispose();
 				}
 
 				if (CollectionViewSource.Source is INotifyCollectionChanged incc)
@@ -174,11 +176,20 @@ namespace Microsoft.Maui.Controls.Handlers.Items
 				CollectionViewSource.Source = null;
 				CollectionViewSource = null;
 			}
-			VirtualView?.ClearLogicalChildren();
 
-			if (VirtualView?.ItemsSource == null)
+			// Remove all children inside the ItemsSource
+			if (VirtualView is not null)
 			{
-				ListViewBase.ItemsSource = null;
+				foreach (var item in platformView.GetChildren<ItemContentControl>())
+				{
+					var element = item.GetVisualElement();
+					VirtualView.RemoveLogicalChild(element);
+				}
+			}
+
+			if (VirtualView?.ItemsSource is null)
+			{
+				platformView.ItemsSource = null;
 				return;
 			}
 		}
@@ -330,38 +341,18 @@ namespace Microsoft.Maui.Controls.Handlers.Items
 
 		protected virtual void UpdateItemsLayout()
 		{
-			if (ListViewBase is FormsGridView gridView)
-			{
-				if (Layout is LinearItemsLayout linearItemsLayout)
-				{
-					gridView.Orientation = linearItemsLayout.ToPlatform();
-
-					gridView.Span = 1;
-
-					if (linearItemsLayout.ItemSpacing != _previousItemSpacing)
-					{
-						_previousItemSpacing = linearItemsLayout.ItemSpacing;
-						gridView.ItemContainerStyle = linearItemsLayout.GetItemContainerStyle();
-					}
-				}
-
-				if (Layout is GridItemsLayout gridItemsLayout)
-				{
-					gridView.Orientation = gridItemsLayout.ToPlatform();
-
-					gridView.Span = gridItemsLayout.Span;
-
-					if (gridItemsLayout.HorizontalItemSpacing != _previousHorizontalItemSpacing ||
-						gridItemsLayout.VerticalItemSpacing != _previousVerticalItemSpacing)
-					{
-						_previousHorizontalItemSpacing = gridItemsLayout.HorizontalItemSpacing;
-						_previousVerticalItemSpacing = gridItemsLayout.VerticalItemSpacing;
-						gridView.ItemContainerStyle = gridItemsLayout.GetItemContainerStyle();
-					}
-				}
-			}
+			ListViewBase.IsSynchronizedWithCurrentItem = false;
 
 			FindScrollViewer(ListViewBase);
+
+			_defaultHorizontalScrollVisibility = null;
+			_defaultVerticalScrollVisibility = null;
+
+			UpdateItemTemplate();
+			UpdateItemsSource();
+			UpdateVerticalScrollBarVisibility();
+			UpdateHorizontalScrollBarVisibility();
+			UpdateEmptyView();
 		}
 
 		void FindScrollViewer(ListViewBase listView)
@@ -631,6 +622,17 @@ namespace Microsoft.Maui.Controls.Handlers.Items
 				if (args.Index >= ItemCount)
 				{
 					return null;
+				}
+
+				if (CollectionViewSource.IsSourceGrouped && args.GroupIndex >= 0)
+				{
+					// CollectionGroups property is of type IObservableVector, but these objects should implement ICollectionViewGroup
+					var itemGroup = CollectionViewSource.View.CollectionGroups[args.GroupIndex] as ICollectionViewGroup;
+					if (itemGroup != null && 
+						args.Index < itemGroup.GroupItems.Count)
+					{
+						return itemGroup.GroupItems[args.Index];
+					}
 				}
 
 				return GetItem(args.Index);

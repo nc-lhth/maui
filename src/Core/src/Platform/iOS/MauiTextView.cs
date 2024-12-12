@@ -8,10 +8,10 @@ using UIKit;
 
 namespace Microsoft.Maui.Platform
 {
-	public class MauiTextView : UITextView
+	public class MauiTextView : UITextView, IUIViewLifeCycleEvents
 	{
-		[UnconditionalSuppressMessage("Memory", "MA0002", Justification = "Proven safe in test: MemoryTests.DoesNotLeak")]
-		readonly UILabel _placeholderLabel;
+		[UnconditionalSuppressMessage("Memory", "MEM0002", Justification = "Proven safe in test: MemoryTests.HandlerDoesNotLeak")]
+		readonly MauiLabel _placeholderLabel;
 		nfloat? _defaultPlaceholderSize;
 
 		public MauiTextView()
@@ -32,13 +32,12 @@ namespace Microsoft.Maui.Platform
 		public override void WillMoveToWindow(UIWindow? window)
 		{
 			base.WillMoveToWindow(window);
-			ResignFirstResponderTouchGestureRecognizer.Update(this, window);
 		}
 
 		// Native Changed doesn't fire when the Text Property is set in code
 		// We use this event as a way to fire changes whenever the Text changes
 		// via code or user interaction.
-		[UnconditionalSuppressMessage("Memory", "MA0001", Justification = "Proven safe in test: MemoryTests.DoesNotLeak")]
+		[UnconditionalSuppressMessage("Memory", "MEM0001", Justification = "Proven safe in test: MemoryTests.HandlerDoesNotLeak")]
 		public event EventHandler? TextSetOrChanged;
 
 		public string? PlaceholderText
@@ -92,7 +91,7 @@ namespace Microsoft.Maui.Platform
 			set
 			{
 				base.Font = value;
-				UpdatePlaceholderFontSize(value);
+				UpdatePlaceholderFont(value);
 
 			}
 		}
@@ -122,13 +121,14 @@ namespace Microsoft.Maui.Platform
 			ShouldCenterVertically();
 		}
 
-		UILabel InitPlaceholderLabel()
+		MauiLabel InitPlaceholderLabel()
 		{
 			var placeholderLabel = new MauiLabel
 			{
 				BackgroundColor = UIColor.Clear,
 				TextColor = ColorExtensions.PlaceholderColor,
-				Lines = 0
+				Lines = 0,
+				VerticalAlignment = UIControlContentVerticalAlignment.Top
 			};
 
 			AddSubview(placeholderLabel);
@@ -162,24 +162,37 @@ namespace Microsoft.Maui.Platform
 
 		void ShouldCenterVertically()
 		{
-			var fittingSize = new CGSize(Bounds.Width, NFloat.MaxValue);
-			var sizeThatFits = SizeThatFits(fittingSize);
-			var availableSpace = Bounds.Height - sizeThatFits.Height * ZoomScale;
+			var contentHeight = ContentSize.Height;
+			var availableSpace = Bounds.Height - contentHeight * ZoomScale;
 			if (availableSpace <= 0)
 				return;
 			ContentOffset = VerticalTextAlignment switch
 			{
 				Maui.TextAlignment.Center => new CGPoint(0, -Math.Max(1, availableSpace / 2)),
 				Maui.TextAlignment.End => new CGPoint(0, -Math.Max(1, availableSpace)),
-				_ => new CGPoint(0, 0),
+				_ => ContentOffset,
 			};
 		}
 
-		void UpdatePlaceholderFontSize(UIFont? value)
+		void UpdatePlaceholderFont(UIFont? value)
 		{
 			_defaultPlaceholderSize ??= _placeholderLabel.Font.PointSize;
-			_placeholderLabel.Font = _placeholderLabel.Font.WithSize(
+			_placeholderLabel.Font = value ?? _placeholderLabel.Font.WithSize(
 				value?.PointSize ?? _defaultPlaceholderSize.Value);
+		}
+
+		[UnconditionalSuppressMessage("Memory", "MEM0002", Justification = IUIViewLifeCycleEvents.UnconditionalSuppressMessage)]
+		EventHandler? _movedToWindow;
+		event EventHandler IUIViewLifeCycleEvents.MovedToWindow
+		{
+			add => _movedToWindow += value;
+			remove => _movedToWindow -= value;
+		}
+
+		public override void MovedToWindow()
+		{
+			base.MovedToWindow();
+			_movedToWindow?.Invoke(this, EventArgs.Empty);
 		}
 	}
 }
